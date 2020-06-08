@@ -1,0 +1,59 @@
+name: Deploy
+
+on:
+  push:
+  schedule:
+    - cron: '0 2 */15 * *'
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Build And Deploy
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build Image
+        id: build_image
+        run: |
+          docker build -t yaoa/caddy-cloudflare:build -f ./Dockerfile .
+          export IMAGE_ID_TEMP=$(sudo docker images --filter=reference=yaoa/caddy-cloudflare:build --format "{{.ID}}")
+          echo "##[set-output name=image_id;]$IMAGE_ID_TEMP"
+      - name: Login
+        env:
+          dockerID: ${{ secrets.dockerID }}
+          dockerPassword: ${{ secrets.dockerPassword }}
+        run: |
+          docker login -u $dockerID -p $dockerPassword
+      - name: Deploy Commit ID
+        if: ${{ github.head_ref == '' && github.sha != '' }}
+        env:
+          image_id: ${{ steps.build_image.outputs.image_id }}
+        run: |
+          docker tag $image_id yaoa/caddy-cloudflare:$GITHUB_SHA
+          docker push yaoa/caddy-cloudflare:$GITHUB_SHA
+      - name: Deploy Latest
+        if: ${{ github.head_ref == '' && github.ref == 'refs/heads/master' }}
+        env:
+          image_id: ${{ steps.build_image.outputs.image_id }}
+        run: |
+          docker tag $image_id yaoa/caddy-cloudflare:latest
+          docker push yaoa/caddy-cloudflare:latest
+      - name: Deploy Develop
+        if: ${{ github.head_ref == '' && startsWith(github.ref, 'refs/heads/dev') }}
+        env:
+          image_id: ${{ steps.build_image.outputs.image_id }}
+        run: |
+          docker tag $image_id yaoa/caddy-cloudflare:latest-develop
+          docker push yaoa/caddy-cloudflare:latest-develop
+      - name: Deploy Branch
+        if: ${{ github.head_ref == '' && startsWith(github.ref, 'refs/heads/') }}
+        env:
+          image_id: ${{ steps.build_image.outputs.image_id }}
+        run: |
+          docker tag $image_id yaoa/caddy-cloudflare:${GITHUB_REF##*/}
+          docker push yaoa/caddy-cloudflare:${GITHUB_REF##*/}
+      - name: Deploy Tag
+        if: ${{ github.head_ref == '' && startsWith(github.ref, 'refs/tags/') }}
+        env:
+          image_id: ${{ steps.build_image.outputs.image_id }}
+        run: |
+          docker tag $image_id yaoa/caddy-cloudflare:${GITHUB_REF##*/}
+          docker push yaoa/caddy-cloudflare:${GITHUB_REF##*/}
